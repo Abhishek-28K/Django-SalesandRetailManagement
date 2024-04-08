@@ -17,17 +17,33 @@ def salesDashboard(request):
     try:
         user = request.user
         username = user.username
+
+        # Calculate 30 days ago
         thirty_days_ago = datetime.now() - timedelta(days=30)
-        sales_30d_total = Sales.objects.filter(PS_Date__gte=thirty_days_ago, username=username).aggregate(total_sales_30d=Sum('SellingPrice') * Sum('QuantitySold'))
+
+        # Calculate total sales within the last 30 days
+        sales_30d_total = Sales.objects.filter(PS_Date__gte=thirty_days_ago, username=username).aggregate(total_sales_30d=Sum('SellingPrice'))
+
+        # Calculate total cost price of items sold within the last 30 days
         cost_price_30d_total = Inventory.objects.filter(R_date__gte=thirty_days_ago, username=username).annotate(total_cost=F('cost') * F('P_Stock')).aggregate(total_cost_price_30d=Sum('total_cost'))
-        profit_30d_total = sales_30d_total['total_sales_30d']-cost_price_30d_total['total_cost_price_30d']
+
+        # Calculate total profit
+        profit_30d_total = sales_30d_total['total_sales_30d'] - cost_price_30d_total['total_cost_price_30d']
+
+        # Calculate total items in stock
         total_items_in_stock = Inventory.objects.filter(username=username).aggregate(total_items=Sum('P_Stock'))
+
+        # Count distinct customers within the last 30 days
         distinct_customers_30d_count = Sales.objects.filter(PS_Date__gte=thirty_days_ago, username=username).values('customer_name').distinct().count()
+
+        # Calculate average selling price of items sold within the last 30 days
         avg_selling_price_30d = Sales.objects.filter(PS_Date__gte=thirty_days_ago, username=username).aggregate(avg_selling_price_30d=Avg('SellingPrice'))
         avg_selling_price_30d = avg_selling_price_30d['avg_selling_price_30d']
         avg_selling_price_30d = "{:.2f}".format(avg_selling_price_30d)
-        sales_data = Sales.objects.filter(PS_Date__gte=thirty_days_ago,username=username)
+
+        # Create a dictionary to store product sales data
         product_sales = {}
+        sales_data = Sales.objects.filter(PS_Date__gte=thirty_days_ago, username=username)
         for sale in sales_data:
             product_name = sale.PS_Name
             quantity_sold = sale.QuantitySold
@@ -35,14 +51,19 @@ def salesDashboard(request):
                 product_sales[product_name] += quantity_sold
             else:
                 product_sales[product_name] = quantity_sold
+
+        # Get top 5 products sold
         top_5_products = sorted(product_sales.items(), key=lambda x: x[1], reverse=True)[:5]
         product_names = [item[0] for item in top_5_products]
         sales_quantities = [item[1] for item in top_5_products]
+
+        # Create bar graph for top 5 products sold
         graph_data = [go.Bar(x=product_names, y=sales_quantities)]
         graph_layout = go.Layout(title='Top 5 Products Sold in Last 30 Days', xaxis=dict(title='Product'), yaxis=dict(title='Quantity Sold'))
         graph_figure = go.Figure(data=graph_data, layout=graph_layout)
         graph_html = graph_figure.to_html(full_html=False, default_height=500, default_width=700)
 
+        # Calculate brand-wise inventory distribution
         inventory_items = Inventory.objects.filter(username=username)
         brand_counts = {}
         total_items = 0
@@ -53,29 +74,35 @@ def salesDashboard(request):
             else:
                 brand_counts[brand] = 1
             total_items += 1
+
+        # Calculate brand percentage
         brand_percentage = {brand: (count / total_items) * 100 for brand, count in brand_counts.items()}
         labels = list(brand_percentage.keys())
         values = list(brand_percentage.values())
+
+        # Create pie chart for brand-wise inventory distribution
         trace = go.Pie(labels=labels, values=values, hole=0.3)
         layout = go.Layout(title='Brand-wise Inventory Distribution')
         fig = go.Figure(data=[trace], layout=layout)
         graph1_html = fig.to_html(full_html=False)
 
-
+        # Construct context dictionary
         context = {
             "total_sales_30d": sales_30d_total,
             "total_cost_price_30d": cost_price_30d_total,
             "profit_30d_total": profit_30d_total,
-            "total_item_in_stock":total_items_in_stock,
+            "total_item_in_stock": total_items_in_stock,
             "distinct_customers_30d_count": distinct_customers_30d_count,
             "avg_selling_price_30d": avg_selling_price_30d,
             'graph_html': graph_html,
-            'graph1_html':graph1_html,
+            'graph1_html': graph1_html,
         }
+
     except Exception as e:
         print(e)
         context = {}
-    return render(request,'inventory/dashboard.html',context=context)
+
+    return render(request, 'inventory/dashboard.html', context=context)
 
 @login_required(login_url='login')
 def inventory(request):
